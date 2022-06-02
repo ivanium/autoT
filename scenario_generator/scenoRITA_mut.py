@@ -1,8 +1,9 @@
+import itertools
+import json
+import os
 import random
 import subprocess
-import os
 import time
-import json
 from deap import base
 from deap import creator
 from deap import tools
@@ -23,7 +24,7 @@ obstacle_type=["PEDESTRIAN","BICYCLE","VEHICLE"]
 def check_trajectory(p_index1,p_index2):
     valid_path=False
     while not valid_path:
-        valid_path=validatePath(p_index1,p_index2,ptl_dict,ltp_dict,diGraph) and longerTrace(list(ptl_dict.keys())[p_index1],list(ptl_dict.keys())[p_index2],ptl_dict,ltp_dict,diGraph)         
+        valid_path=validatePath(p_index1,p_index2,ptl_dict,ltp_dict,diGraph) and longerTrace(list(ptl_dict.keys())[p_index1],list(ptl_dict.keys())[p_index2],ptl_dict,ltp_dict,diGraph)
         if not valid_path:
             p_index1=random.randint(0,len(ptl_dict.keys())-1)
             p_index2=random.randint(0,len(ptl_dict.keys())-1)
@@ -66,6 +67,8 @@ def check_obs_type(length,width,height,speed,type_index):
 def runScenario(deme,record_name):
     #to start with a fresh set of obstacles for the current scnerio
     os.system("rm -f /apollo/modules/tools/perception/obstacles/*")
+    if(record_name == "Generation0_Scenario1"):
+        os.system("rm /apollo/cyber/haoran_test.txt")
     global diversity_counter
     diversity_counter={"V":0,"P":0,"B":0}
     for ind in deme:
@@ -99,7 +102,7 @@ def runScenario(deme,record_name):
     failed=True
     num_runs=0
     while failed:
-        #if scenario has been restarted x times, restart the moodules and sim control 
+        #if scenario has been restarted x times, restart the moodules and sim control
         if num_runs % 10 == 0 and num_runs != 0:
             os.system("bash /apollo/scripts/bootstrap.sh stop")
             time.sleep(10)
@@ -130,12 +133,12 @@ def runScenario(deme,record_name):
         scenario_player_output=str(scenario_player_output)[2:-3]
         num_runs=num_runs+1
         #print(scenario_player_output)
-        #if the adc didn't move or the adc was travelling outside the map boundaries, then re-run scenrio with new routing info  
+        #if the adc didn't move or the adc was travelling outside the map boundaries, then re-run scenrio with new routing info
         if scenario_player_output == 'None':
             continue
         scenario_player_output=scenario_player_output.split('\\n')
         min_distance=eval(scenario_player_output[0])
-        #the return number of obstacles must match the ones in the individual 
+        #the return number of obstacles must match the ones in the individual
         if len(min_distance) != len(deme):
             continue
         else:
@@ -144,12 +147,13 @@ def runScenario(deme,record_name):
     sim_time=float(scenario_player_output[8])*num_runs
     orcle_time=float(scenario_player_output[9])*num_runs
     lanes,min_distance,speeding_min,uslc_min,fastAccl_min,hardBrake_min=runOracles(scenario_player_output,record_name,deme)
+    os.system("mv /apollo/cyber/haoran_test.txt /apollo/evaluators_cov/evaluators_"+record_name+".txt")
     return lanes,min_distance,speeding_min,uslc_min,fastAccl_min,hardBrake_min,sim_time,orcle_time,num_runs
 
 # ------- Main Function -------
 def main():
     # ------- GA Definitions -------
-    # Fitness and Individual generator 
+    # Fitness and Individual generator
     creator.create("MultiFitness", base.Fitness, weights=(-1.0,-1.0,-1.0,1.0,-1.0))
     creator.create("Individual", list, fitness=creator.MultiFitness)
     toolbox = base.Toolbox()
@@ -176,16 +180,16 @@ def main():
     OBS_MAX=15
     OBS_MIN=3
     TOTAL_LANES=60
-    ETIME=43200 # execution time end (in seconds) after 12 hours 
+    ETIME=6000 # execution time end (in seconds) after 100mins
     GLOBAL_LANE_COVERAGE=set()
     DEME_SIZES = [random.randint(OBS_MIN,OBS_MAX) for p in range(0,NP)]
     CXPB, MUTPB, ADDPB, DELPB = 0.8, 0.2, 0.1, 0.1
     pop = [toolbox.deme(n=i) for i in DEME_SIZES]
     hof = tools.HallOfFame(NP) #best ind in each scenario
-    lane_coverage = {scenario_num:set() for scenario_num in range(1,NP+1)} 
-    scenario_counter=1  
+    lane_coverage = {scenario_num:set() for scenario_num in range(1,NP+1)}
+    scenario_counter=1
     g=0
-    
+
     #store features output and evolution output
     labels="record_name,c_x,c_y,c_type,adc_heading,adc_speed,obs_id,obs_heading,obs_speed,obs_type,obs_len,obs_wid,obs_height,"\
     "speeding_x,speeding_y,speeding_value,speeding_duration,speeding_heading,lanes_speed_limit,uslc_x,uslc_y,uslc_duration,uslc_heading,"\
@@ -201,22 +205,63 @@ def main():
         tfile.write(labels)
 
     os.system("rm -rf /apollo/automation/grading_metrics/Safety_Violations/*")
+    dump_file = '/apollo/cyber/auto_t_scenario_dump.txt'
+    if os.path.exists(dump_file):
+        os.remove(dump_file)
     print("Start of evolution")
+    evaluators = {
+      'CyclistKeepLaneEvaluator',
+      'PedestrianInteractionEvaluator',
+      'CruiseMLPEvaluator',
+      'JunctionMapEvaluator',
+      'JunctionMLPWvaluator',
+      'LaneAggregatingEvaluator',
+      'LaneScanningEvaluator',
+      'MLPEvaluator',
+      'SemanticLSTMEvaluator',
+    }
+    pairwise_combinations = list(itertools.combinations(evaluators, 2))
+
     start_time=time.time()
     for deme in pop:
         e2e_time=time.time()
         record_name="Generation{}_Scenario{}".format(g,scenario_counter)
-        lanes,min_distance,speeding_min,uslc_min,fastAccl_min,hardBrake_min,sim_time,orcle_time,num_runs=runScenario(deme,record_name) 
+
+        print("YIFAN:", record_name, "start")
+        lanes,min_distance,speeding_min,uslc_min,fastAccl_min,hardBrake_min,sim_time,orcle_time,num_runs=runScenario(deme,record_name)
+        print("YIFAN:", record_name, "end")
+
+
+        coverage_file = os.path.join("/apollo/evaluators_cov/evaluators_{}.txt".format(record_name))
+        visited = set()
+        pairwise_visited = set()
+        if os.path.exists(coverage_file):
+            with open(coverage_file) as f:
+                for line in f.readlines():
+                    evaluator_name = line[10:-1]
+                    visited.add(evaluator_name)
+            for combination in pairwise_combinations:
+                e1,e2 = combination
+                if e1 in visited and e2 in visited:
+                    pairwise_visited.add("{}{}".format(e1, e2))
+        else:
+           raise RuntimeError("expected evaluator file")
+
+        scenario_coverage = len(visited) / len(evaluators)
+        scenario_pairwise_coverage = len(pairwise_visited) / len(pairwise_combinations)
+
+        print("cnav: {} {} {}".format(record_name, scenario_coverage, scenario_pairwise_coverage))
+
         lanes.remove('')
         GLOBAL_LANE_COVERAGE.update(lanes)
-        lane_coverage[scenario_counter]=lane_coverage[scenario_counter].union(lanes) 
+        lane_coverage[scenario_counter]=lane_coverage[scenario_counter].union(lanes)
         sum=0
         for ind in deme:
             obs_min_dist=min_distance[str(ind[0])]
             ind.fitness.values = (obs_min_dist,speeding_min,uslc_min,fastAccl_min,hardBrake_min,)
             sum+=obs_min_dist
         with open(os.path.join(dest,ga_file),'a+') as gfile:
-            gfile.write("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" 
+            gfile.write("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n"
             % (record_name,len(deme),diversity_counter["P"],diversity_counter["B"],diversity_counter["V"],sum/len(deme),speeding_min,uslc_min,fastAccl_min,hardBrake_min))
         e2e_time=time.time()-e2e_time
         misc_time=e2e_time-sim_time-orcle_time
@@ -249,9 +294,31 @@ def main():
                     best_ind=hof[random.randint(0,int(len(hof)/2))]
                     offspring.append(best_ind)
                     del mutant.fitness.values
-            
+
             record_name="Generation{}_Scenario{}".format(g,scenario_counter)
+            print("YIFAN: phase2", record_name, "start")
             lanes,min_distance,speeding_min,uslc_min,fastAccl_min,hardBrake_min,sim_time,orcle_time,num_runs=runScenario(offspring,record_name)
+            print("YIFAN: phase2", record_name, "end")
+
+            visited = set()
+            pairwise_visited = set()
+            if os.path.exists(coverage_file):
+                with open(coverage_file) as f:
+                    for line in f.readlines():
+                        evaluator_name = line[10:-1]
+                        visited.add(evaluator_name)
+                    for combination in pairwise_combinations:
+                        e1,e2 = combination
+                        if e1 in visited and e2 in visited:
+                            pairwise_visited.add("{}{}".format(e1, e2))
+            else:
+                raise RuntimeError("expected evaluator file")
+
+            scenario_coverage = len(visited) / len(evaluators)
+            scenario_pairwise_coverage = len(pairwise_visited) / len(pairwise_combinations)
+
+            print("cnav: {} {} {}".format(record_name, scenario_coverage, scenario_pairwise_coverage))
+
             lanes.remove('')
             GLOBAL_LANE_COVERAGE.update(lanes)
             lane_coverage[scenario_counter]=lane_coverage[scenario_counter].union(lanes)
@@ -271,12 +338,12 @@ def main():
             with open(os.path.join(dest,timer_file),'a+') as tfile:
                 tfile.write("{},{:.2f},{:.2f},{:.2f},{:.2f},{}\n".format(record_name,sim_time,orcle_time,misc_time,e2e_time,num_runs))
             scenario_counter+=1
-            
+
             if (time.time()-start_time)>=ETIME:
                 break
 
     print("-- End of (successful) evolution --")
-    
+
     # ------- Final Results -------
     end_time = time.time()
     print("-- Execution Time: %.2f  seconds --\n" % (end_time-start_time))
