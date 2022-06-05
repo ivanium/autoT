@@ -45,7 +45,7 @@ def random_gen_config():
         evaluators.append(evaluator_str)
         template[pos] = evaluator_str
 
-    print(evaluators)
+    # print(evaluators)
 
     return template
 
