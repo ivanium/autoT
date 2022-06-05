@@ -46,18 +46,21 @@ def random_gen_config():
         template[pos] = evaluator_str
 
     # print(evaluators)
-
     return template
 
 
 def restart_predictor():
     os.system("bash /apollo/scripts/prediction.sh stop")
-    os.system("sleep 1")
     os.system("bash /apollo/scripts/prediction.sh start")
 
 
 def fuzz_config():
     dump_config(random_gen_config())
+    restart_predictor()
+
+
+def reset_config():
+    dump_config(load_template())
     restart_predictor()
 
 
