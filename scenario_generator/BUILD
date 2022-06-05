@@ -11,6 +11,14 @@ py_binary(
 )
 
 py_binary(
+	name = "scenoRITA_baseline",
+	srcs = ["scenoRITA_baseline.py"],
+	deps = [
+		"//automation/auxiliary/map:map_tools",
+	],
+)
+
+py_binary(
    name = "scenoRITA_immut",
    srcs = ["scenoRITA_immut.py"],
    deps = [
@@ -23,5 +31,14 @@ py_binary(
    srcs = ["scenoRITA_random.py"],
    deps = [
        "//automation/auxiliary/map:map_tools",
+   ],
+)
+
+py_binary(
+   name = "autoT",
+   srcs = ["autoT.py"],
+   deps = [
+       "//automation/auxiliary/map:map_tools",
+       "//automation/predictor_fuzzer:random_gen",
    ],
 )
